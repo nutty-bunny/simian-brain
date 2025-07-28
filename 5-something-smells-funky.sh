@@ -2,22 +2,32 @@
 
 set -e
 
-base_dir="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/derivatives/patchoulli/"
-func_4d="${base_dir}func/topupped_mc.nii.gz"
-ref_nmt="/Users/similovesyou/Desktop/qts/simian-brain/NMT_v2.0_sym/NMT_v2.0_sym_05mm/NMT_v2.0_sym_05mm.nii.gz"
+# Monkey list
+monkeys=(
+  "iron"
+)
 
-func2t1_mat="${base_dir}func/func2T1_rigid_ants_refined0GenericAffine.mat"
-t1_to_nmt_affine="${base_dir}aligned_0GenericAffine.mat"
-t1_to_nmt_warp="${base_dir}registered_1Warp.nii.gz"
+# Reference NMT template
+ref_nmt="/Users/similovesyou/Desktop/qts/simian-brain/NMT_v2.1_sym/NMT_v2.1_sym_05mm/NMT_v2.1_sym_05mm.nii.gz"
 
-tmpdir="${base_dir}func/tmp_applytransforms"
-mkdir -p "$tmpdir"
+# Loop over each monkey
+for monkey in "${monkeys[@]}"; do
+  echo "Processing monkey: $monkey"
 
-if ! compgen -G "${tmpdir}/vol_*.nii.gz" > /dev/null; then
-  fslsplit "$func_4d" "${tmpdir}/vol_" -t
-fi
+  base_dir="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/derivatives/${monkey}/"
+  func_4d="${base_dir}func/topupped-mc.nii.gz"
+  func2t1_mat="${base_dir}func/func2T1-rigid0GenericAffine.mat"
+  t1_to_nmt_affine="${base_dir}aligned-0GenericAffine.mat"
+  t1_to_nmt_warp="${base_dir}registered-1Warp.nii.gz"
 
-for vol in "${tmpdir}"/vol_*.nii.gz; do
+  tmpdir="${base_dir}func/tmp-applytransforms"
+  mkdir -p "$tmpdir"
+
+  if ! compgen -G "${tmpdir}/vol_*.nii.gz" > /dev/null; then
+    fslsplit "$func_4d" "${tmpdir}/vol_" -t
+  fi
+
+  for vol in "${tmpdir}"/vol_*.nii.gz; do
     vol_base=$(basename "$vol")
     out_file="${tmpdir}/nmt_${vol_base}"
 
@@ -32,20 +42,22 @@ for vol in "${tmpdir}"/vol_*.nii.gz; do
       -o "$out_file" \
       -n Linear \
       -t "$t1_to_nmt_warp" \
-      -t "$t1_to_nmt_affine" \
-      -t "$func2t1_mat"
+      -t "$t1_to_nmt_affine"
+  done
+
+  find "$tmpdir" -name 'nmt_vol_*.nii.gz' | sort > "${tmpdir}/filelist.txt"
+
+  if [[ ! -s "${tmpdir}/filelist.txt" ]]; then
+    echo "No transformed volumes found for $monkey."
+    continue
+  fi
+
+  fslmerge -t "${base_dir}func/func-in-NMT.nii.gz" $(cat "${tmpdir}/filelist.txt")
+
+  rm -rf "$tmpdir"
+
+  echo "Done with $monkey"
+  echo "fsleyes $ref_nmt ${base_dir}func/func-in-NMT.nii.gz &"
 done
 
-find "$tmpdir" -name 'nmt_vol_*.nii.gz' | sort > "${tmpdir}/filelist.txt"
-
-if [[ ! -s "${tmpdir}/filelist.txt" ]]; then
-  echo "No transformed volumes found."
-  exit 1
-fi
-
-fslmerge -t "${base_dir}func/func_in_NMT.nii.gz" $(cat "${tmpdir}/filelist.txt")
-
-rm -rf "$tmpdir"
-
-echo "Done"
-echo "fsleyes $ref_nmt ${base_dir}func/func_in_NMT.nii.gz &"
+echo "All monkeys processed."

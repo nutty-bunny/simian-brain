@@ -1,57 +1,48 @@
 #!/bin/bash
 set -e
 
-# ------------ FILLED-IN USER CONFIG ----------------
-FUNC="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/derivatives/patchoulli/func/func_in_NMT.nii.gz"
-MC_PAR="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/derivatives/patchoulli/func/topupped_mc.par"
-SEGMENT="/Users/similovesyou/Desktop/qts/simian-brain/NMT_v2.0_sym/NMT_v2.0_sym_05mm/NMT_v2.0_sym_05mm_segmentation.nii.gz"
-MASK="/Users/similovesyou/Desktop/qts/simian-brain/NMT_v2.0_sym/NMT_v2.0_sym_05mm/NMT_v2.0_sym_05mm_brainmask.nii.gz"
+# ------------ CONFIG-ME ----------------
+FUNC="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/derivatives/iron/func/func-in-NMT.nii.gz"
+MC_PAR="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/derivatives/iron/func/topupped-mc.par"
+SEGMENT="/Users/similovesyou/Desktop/qts/simian-brain/NMT_v2.1_sym/NMT_v2.1_sym_05mm/NMT_v2.1_sym_05mm_segmentation.nii.gz"
+MASK="/Users/similovesyou/Desktop/qts/simian-brain/NMT_v2.1_sym/NMT_v2.1_sym_05mm/NMT_v2.1_sym_05mm_brainmask.nii.gz"
 TR=1.45
 SCRIPT_DIR="/Users/similovesyou/Desktop/qts/simian-brain/data/site-strasbourg/scripts"
-OUTDIR=$(dirname "$FUNC")/preproc
-# ----------------------------------------------------
+OUTDIR=$(dirname "$FUNC")/func-a-licious
+# ---------------------------------------
 
 mkdir -p "$OUTDIR"
-3dresample \
-  -master "$FUNC" \
-  -inset "$MASK" \
-  -prefix "$OUTDIR/brainmask_resampled.nii.gz"
 
-echo "Step 1: Despiking using brain mask"
-# Apply brain mask first to reduce data size
-3dcalc -a "$FUNC" -b "$OUTDIR/brainmask_resampled.nii.gz" -expr 'a*b' -prefix "$OUTDIR/func_masked.nii.gz"
+echo "Resample brain mask to func space"
+3dresample -master "$FUNC" -inset "$MASK" -prefix "$OUTDIR/brainmask-resampled.nii.gz"
 
-# Now despike the masked version
-3dDespike -prefix "$OUTDIR/func_despike.nii.gz" "$OUTDIR/func_masked.nii.gz"
-
-echo "Step 2: High-pass filtering (cutoff ~0.01Hz)"
-SIGMA=$(echo "2000 / (2 * $TR)" | bc -l)
-fslmaths "$OUTDIR/func_despike.nii.gz" -bptf $SIGMA -1 "$OUTDIR/func_filtered.nii.gz"
-
-echo "Step 3: WM & CSF masks"
-fslmaths "$SEGMENT" -thr 4 -uthr 4 -bin "$OUTDIR/wm_mask.nii.gz"
-fslmaths "$SEGMENT" -thr 1 -uthr 1 -bin "$OUTDIR/csf_mask.nii.gz"
-
-echo "Step 4: Extract WM & CSF time series"
-fslmeants -i "$OUTDIR/func_filtered.nii.gz" -m "$OUTDIR/wm_mask.nii.gz" -o "$OUTDIR/wm.txt"
-fslmeants -i "$OUTDIR/func_filtered.nii.gz" -m "$OUTDIR/csf_mask.nii.gz" -o "$OUTDIR/csf.txt"
-
-echo "Step 5: Create combined confounds"
+echo "Despiking using brain mask"
+3dcalc -a "$FUNC" -b "$OUTDIR/brainmask-resampled.nii.gz" -expr 'a*b' -prefix "$OUTDIR/func-masked.nii.gz"
+3dDespike -prefix "$OUTDIR/func-despike.nii.gz" "$OUTDIR/func-masked.nii.gz"
+ 
+echo "Create combined confounds (no Volterra)" # If want to include Volterra expansions, add --volterra flag
 python3 "$SCRIPT_DIR/6-confounds.py" \
-  --wm "$OUTDIR/wm.txt" \
-  --csf "$OUTDIR/csf.txt" \
   --mc "$MC_PAR" \
-  --volterra \
-  --output "$OUTDIR/all_confounds.txt"
+  --output "$OUTDIR/all-confounds.txt"
 
-echo "Step 6: Regress confounds"
-N_CONF=$(awk '{print NF}' "$OUTDIR/all_confounds.txt" | head -n 1)
-fsl_regfilt -i "$OUTDIR/func_filtered.nii.gz" \
-            -d "$OUTDIR/all_confounds.txt" \
-            -f $(seq -s "," 1 $N_CONF) \
-            -o "$OUTDIR/func_clean.nii.gz"
+1d_tool.py -overwrite \
+           -infile "$MC_PAR" \
+           -set_nruns 1 \
+           -show_censor_count \
+           -censor_motion 0.2 censor_temp
 
-echo "Step 7: Compute mean functional image"
-fslmaths "$OUTDIR/func_clean.nii.gz" -Tmean "$OUTDIR/mean_func.nii.gz"
+mv censor_temp_censor.1D "$OUTDIR/censor.1D"
 
-echo "DONE. Output: $OUTDIR/func_clean.nii.gz"
+echo "Bandpass filtering + confound regression using AFNI 3dTproject"
+3dTproject -input "$OUTDIR/func-despike.nii.gz" \
+          -mask "$OUTDIR/brainmask-resampled.nii.gz" \
+          -ort "$OUTDIR/all-confounds.txt" \
+          -prefix "$OUTDIR/func-clean.nii.gz" \
+          -censor "$OUTDIR/censor.1D" \
+          -bandpass 0.005 0.1 \
+          -polort 0
+
+echo "Compute mean functional image"
+3dTstat -mean -prefix "$OUTDIR/mean-func.nii.gz" "$OUTDIR/func-clean.nii.gz"
+
+echo "DONE. Output: $OUTDIR/func-clean.nii.gz"
