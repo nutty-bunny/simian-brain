@@ -1,0 +1,53 @@
+# Ignore specific folders
+final-functional-connectivity-2mm/
+NMT_v2.1_sym/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg
+*.egg-info/
+*.whl
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Type checker / linter caches
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+pytest_cache/
+cython_debug/
+
+# IDE/editor files
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+.ropeproject/
+
+# Misc large or temporary data files (optional)
+*.nii.gz
+*.mat
+*.json
